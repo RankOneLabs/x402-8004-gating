@@ -199,11 +199,16 @@ function matchRoute(
   // Try wildcard match (e.g. "GET /api/premium/*")
   for (const [pattern, config] of Object.entries(routes)) {
     const [routeMethod, routePath] = pattern.split(" ", 2);
+    // Validate pattern format: must be "METHOD /path"
+    if (!routeMethod || !routePath) continue;
     if (routeMethod !== method) continue;
 
     if (routePath.endsWith("/*")) {
       const prefix = routePath.slice(0, -2);
-      if (path.startsWith(prefix)) return config;
+      // Match exact prefix or any subpath, but avoid matching similar prefixes like "/apibar"
+      if (path === prefix || path.startsWith(prefix + "/")) {
+        return config;
+      }
     }
   }
 
