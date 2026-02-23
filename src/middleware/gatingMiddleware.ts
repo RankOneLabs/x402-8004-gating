@@ -120,7 +120,11 @@ function createX402Middleware(
             if (!agentAddress) return basePrice;
 
             try {
-              const result = await reputationProvider.getScore(agentAddress);
+              const result = await reputationProvider.getScore(
+                agentAddress,
+                config.reputation?.tag1,
+                config.reputation?.tag2,
+              );
               return computePrice(result.score, basePrice, tiers);
             } catch (error) {
               console.error(
@@ -174,8 +178,11 @@ function createMockPaymentMiddleware(
       const agentAddress = req.headers["x-agent-address"] as string | undefined;
       if (agentAddress) {
         try {
-          const tags = routeConfig.reputation?.tags;
-          const result = await reputationProvider.getScore(agentAddress, tags);
+          const result = await reputationProvider.getScore(
+            agentAddress,
+            routeConfig.reputation?.tag1,
+            routeConfig.reputation?.tag2,
+          );
           price = computePrice(result.score, routeConfig.payment.basePrice, routeConfig.priceTiers);
         } catch (err) {
           console.warn(
