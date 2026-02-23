@@ -161,7 +161,11 @@ function createMockPaymentMiddleware(
         try {
           const result = await reputationProvider.getScore(agentAddress);
           price = computePrice(result.score, routeConfig.payment.basePrice, routeConfig.priceTiers);
-        } catch {
+        } catch (err) {
+          console.warn(
+            "Failed to fetch reputation score in combined gating mode; falling back to base price.",
+            { agentAddress, error: err },
+          );
           // fallback to base price
         }
       }
