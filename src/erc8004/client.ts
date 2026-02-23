@@ -1,4 +1,4 @@
-import { createPublicClient, http, getContract, type Address } from "viem";
+import { createPublicClient, http, getContract, isAddress, type Address } from "viem";
 import { baseSepolia } from "viem/chains";
 import type { ReputationProvider, ReputationResult } from "./types.js";
 import { identityRegistryAbi, reputationRegistryAbi } from "./abis.js";
@@ -47,6 +47,9 @@ export class ERC8004Client implements ReputationProvider {
    * Registered events. Returns null if no identity found.
    */
   async resolveAgentId(ownerAddress: string): Promise<bigint | null> {
+    if (!isAddress(ownerAddress)) {
+      throw new Error(`Invalid Ethereum address format: "${ownerAddress}". Expected a valid 0x-prefixed hex address.`);
+    }
     const logs = await this.publicClient.getContractEvents({
       address: this.identityRegistry.address,
       abi: identityRegistryAbi,
