@@ -1,0 +1,38 @@
+{
+  "name": "gating-x402-8004",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "x402 + ERC-8004 API access gating demo",
+  "scripts": {
+    "dev": "tsx src/server/index.ts",
+    "dev:mock": "MOCK_MODE=true tsx src/server/index.ts",
+    "client": "tsx src/client/index.ts",
+    "client:mock": "MOCK_MODE=true tsx src/client/index.ts",
+    "register-agent": "tsx scripts/register-agent.ts",
+    "give-feedback": "tsx scripts/give-feedback.ts",
+    "query-reputation": "tsx scripts/query-reputation.ts",
+    "fund-wallet": "tsx scripts/fund-wallet.ts",
+    "dev:local": "LOCAL_MODE=true tsx src/server/index.ts",
+    "client:local": "LOCAL_MODE=true tsx src/client/index.ts",
+    "seed:local": "tsx scripts/seed-local.ts",
+    "anvil": "anvil --fork-url https://sepolia.base.org --port 8545",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@x402/core": "^2.4.0",
+    "@x402/express": "^2.4.0",
+    "@x402/evm": "^2.4.0",
+    "@x402/fetch": "^2.4.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "viem": "^2.39.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
