@@ -21,7 +21,7 @@ export interface GatingRouteConfig {
   mode: GatingMode;
   payment?: PaymentConfig;
   reputation?: ReputationConfig;
-  priceTiers?: PriceTier[]; // for "combined" mode, sorted highest score first
+  priceTiers?: PriceTier[]; // for "combined" mode; must be sorted in descending order by minScore (highest score first)
   description?: string;
 }
 
