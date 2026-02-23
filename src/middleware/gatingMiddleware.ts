@@ -107,7 +107,11 @@ function createX402Middleware(
             try {
               const result = await reputationProvider.getScore(agentAddress);
               return computePrice(result.score, basePrice, tiers);
-            } catch {
+            } catch (error) {
+              console.error(
+                "Failed to fetch reputation score for agent in combined mode; falling back to base price.",
+                { agentAddress, error }
+              );
               return basePrice; // fallback to full price on error
             }
           },
