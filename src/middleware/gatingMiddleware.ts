@@ -56,6 +56,20 @@ export function createGatingMiddleware(
 }
 
 /**
+ * Validate that a network string is in CAIP-2 format (e.g. "eip155:84532").
+ * Throws an Error with a descriptive message if the format is invalid.
+ */
+function validateNetwork(network: string, routeKey: string): asserts network is Network {
+  const parts = network.split(":");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new Error(
+      `Invalid network identifier "${network}" for route "${routeKey}". ` +
+        `Expected CAIP-2 format "namespace:reference" (e.g. "eip155:84532").`,
+    );
+  }
+}
+
+/**
  * Build real x402 payment middleware for payment + combined routes.
  */
 function createX402Middleware(
@@ -76,6 +90,7 @@ function createX402Middleware(
     if (!config.payment) continue;
 
     const { network, payTo } = config.payment;
+    validateNetwork(network, routeKey);
 
     if (config.mode === "payment") {
       // Static price
