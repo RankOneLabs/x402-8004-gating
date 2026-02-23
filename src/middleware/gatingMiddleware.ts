@@ -159,7 +159,8 @@ function createMockPaymentMiddleware(
       const agentAddress = req.headers["x-agent-address"] as string | undefined;
       if (agentAddress) {
         try {
-          const result = await reputationProvider.getScore(agentAddress);
+          const tags = routeConfig.reputation?.tags;
+          const result = await reputationProvider.getScore(agentAddress, tags);
           price = computePrice(result.score, routeConfig.payment.basePrice, routeConfig.priceTiers);
         } catch (err) {
           console.warn(
