@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { isAddress } from "viem";
 import type { ReputationProvider } from "../erc8004/types.js";
 import type { ReputationConfig } from "./types.js";
 
@@ -18,6 +19,14 @@ export async function checkReputation(
     res.status(403).json({
       error: "Missing X-Agent-Address header",
       detail: "Reputation-gated endpoints require agent identification.",
+    });
+    return null;
+  }
+
+  if (!isAddress(agentAddress)) {
+    res.status(400).json({
+      error: "Invalid X-Agent-Address header",
+      detail: "The provided address is not a valid EVM address.",
     });
     return null;
   }
