@@ -16,8 +16,10 @@ export function computePrice(
     return basePrice;
   }
 
-  // Tiers are expected sorted descending by minScore
-  for (const tier of tiers) {
+  // Sort tiers descending by minScore to ensure correct evaluation order
+  const sortedTiers = [...tiers].sort((a, b) => b.minScore - a.minScore);
+
+  for (const tier of sortedTiers) {
     if (score >= tier.minScore) {
       return tier.price;
     }
