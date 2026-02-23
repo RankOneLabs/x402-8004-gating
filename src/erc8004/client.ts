@@ -1,4 +1,4 @@
-import { createPublicClient, http, getContract, type Address } from "viem";
+import { createPublicClient, http, getContract, isAddress, type Address } from "viem";
 import { baseSepolia } from "viem/chains";
 import type { ReputationProvider, ReputationResult } from "./types.js";
 import { identityRegistryAbi, reputationRegistryAbi } from "./abis.js";
@@ -23,6 +23,13 @@ export class ERC8004Client implements ReputationProvider {
   private fromBlock: bigint;
 
   constructor(config: ERC8004ClientConfig) {
+    if (!isAddress(config.identityRegistry)) {
+      throw new Error(`Invalid Ethereum address for identityRegistry: "${config.identityRegistry}"`);
+    }
+    if (!isAddress(config.reputationRegistry)) {
+      throw new Error(`Invalid Ethereum address for reputationRegistry: "${config.reputationRegistry}"`);
+    }
+
     this.fromBlock = config.fromBlock ?? 0n;
     this.publicClient = createPublicClient({
       chain: baseSepolia,
@@ -30,13 +37,13 @@ export class ERC8004Client implements ReputationProvider {
     });
 
     this.identityRegistry = getContract({
-      address: config.identityRegistry as Address,
+      address: config.identityRegistry,
       abi: identityRegistryAbi,
       client: this.publicClient,
     });
 
     this.reputationRegistry = getContract({
-      address: config.reputationRegistry as Address,
+      address: config.reputationRegistry,
       abi: reputationRegistryAbi,
       client: this.publicClient,
     });
