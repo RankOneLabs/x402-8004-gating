@@ -30,6 +30,11 @@ async function main() {
   const args = process.argv.slice(2);
   const agentId = BigInt(args[0] || "1");
   const score = parseInt(args[1] || "85", 10);
+  if (!Number.isFinite(score) || score < 0 || score > 100) {
+    console.error(`Invalid score: "${args[1]}". Must be an integer between 0 and 100.`);
+    console.error("Usage: npm run give-feedback -- <agentId> [score] [tag1] [tag2]");
+    process.exit(1);
+  }
   const tag1 = args[2] || "quality";
   const tag2 = args[3] || "";
 
@@ -60,7 +65,7 @@ async function main() {
       0, // valueDecimals (uint8) — integer score
       tag1,
       tag2,
-      "https://localhost:8004/api/flex", // endpoint
+      `${process.env.BASE_URL || "http://localhost:8004"}/api/flex`, // endpoint
       "", // feedbackURI
       zeroHash, // feedbackHash
     ],

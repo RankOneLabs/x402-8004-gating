@@ -85,6 +85,22 @@ async function waitTx(hash: `0x${string}`, label: string) {
   return receipt;
 }
 
+async function anvilRpc(method: string, params: unknown[]) {
+  const res = await fetch(ANVIL_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+  });
+  if (!res.ok) {
+    throw new Error(`Anvil RPC HTTP error: ${res.status} ${res.statusText}`);
+  }
+  const json = await res.json() as { result?: unknown; error?: { code: number; message: string } };
+  if (json.error) {
+    throw new Error(`Anvil RPC error in ${method}: ${json.error.message}`);
+  }
+  return json.result;
+}
+
 // Registered(uint256 indexed agentId, string agentURI, address indexed owner)
 const REGISTERED_TOPIC = "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a";
 
@@ -126,16 +142,7 @@ async function main() {
   // which causes _safeMint's onERC721Received callback to fail.
   console.log("0. Clearing EIP-7702 delegation code from Anvil accounts...");
   for (const acct of accounts) {
-    await fetch(ANVIL_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "anvil_setCode",
-        params: [acct.address, "0x"],
-        id: 1,
-      }),
-    });
+    await anvilRpc("anvil_setCode", [acct.address, "0x"]);
   }
   console.log("  Done — all accounts are now plain EOAs\n");
 
@@ -239,16 +246,7 @@ async function main() {
   // Set balance to 100 USDC (100 * 10^6 = 100000000)
   const balanceHex = pad(toHex(usdcAmount), { size: 32 });
 
-  await fetch(ANVIL_RPC, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "anvil_setStorageAt",
-      params: [USDC_ADDRESS, storageSlot, balanceHex],
-      id: 1,
-    }),
-  });
+  await anvilRpc("anvil_setStorageAt", [USDC_ADDRESS, storageSlot, balanceHex]);
 
   // Verify
   const balance = await publicClient.readContract({
