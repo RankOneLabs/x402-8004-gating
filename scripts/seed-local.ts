@@ -24,6 +24,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia } from "viem/chains";
 import { identityRegistryAbi, reputationRegistryAbi } from "../src/erc8004/abis.js";
+import { type Option, Some, None, isSome, isNone } from "../src/types/option.js";
 
 // ── Anvil default accounts (deterministic from mnemonic) ──
 const ANVIL_KEYS = [
@@ -104,16 +105,16 @@ async function anvilRpc(method: string, params: unknown[]) {
 // Registered(uint256 indexed agentId, string agentURI, address indexed owner)
 const REGISTERED_TOPIC = "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a";
 
-function parseAgentId(receipt: { logs: readonly { topics: readonly string[]; address: string }[] }): bigint | null {
+function parseAgentId(receipt: { logs: readonly { topics: readonly string[]; address: string }[] }): Option<bigint> {
   const log = receipt.logs.find(
     (l) =>
       l.address.toLowerCase() === IDENTITY_REGISTRY.toLowerCase() &&
       l.topics[0] === REGISTERED_TOPIC,
   );
   if (log && log.topics[1]) {
-    return BigInt(log.topics[1]);
+    return Some(BigInt(log.topics[1]));
   }
-  return null;
+  return None;
 }
 
 async function main() {
@@ -159,7 +160,7 @@ async function main() {
     args: [],
   });
   const receiptA = await waitTx(hashA, "Agent A registered");
-  const agentIdA = parseAgentId(receiptA);
+  const parsedA = parseAgentId(receiptA);
 
   const hashB = await agentBWallet.writeContract({
     address: IDENTITY_REGISTRY,
@@ -168,15 +169,18 @@ async function main() {
     args: [],
   });
   const receiptB = await waitTx(hashB, "Agent B registered");
-  const agentIdB = parseAgentId(receiptB);
+  const parsedB = parseAgentId(receiptB);
 
-  console.log(`  Agent A id: ${agentIdA}`);
-  console.log(`  Agent B id: ${agentIdB}`);
-
-  if (!agentIdA || !agentIdB) {
+  if (isNone(parsedA) || isNone(parsedB)) {
     console.error("Failed to parse agent IDs from registration events");
     process.exit(1);
   }
+
+  const agentIdA = parsedA.value;
+  const agentIdB = parsedB.value;
+
+  console.log(`  Agent A id: ${agentIdA}`);
+  console.log(`  Agent B id: ${agentIdB}`);
 
   // ── Step 2: Submit reputation feedback ──
   console.log("\n2. Submitting reputation feedback...");
