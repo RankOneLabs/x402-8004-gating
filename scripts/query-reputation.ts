@@ -6,8 +6,8 @@
  */
 import "dotenv/config";
 import { ERC8004Client } from "../src/erc8004/client.js";
-import { isErr, isOk } from "../src/types/result.js";
-import { isNone, isSome } from "../src/types/option.js";
+import { isErr } from "../src/types/result.js";
+import { isNone } from "../src/types/option.js";
 
 const RPC_URL = process.env.BASE_SEPOLIA_RPC || "https://sepolia.base.org";
 const IDENTITY_REGISTRY =
