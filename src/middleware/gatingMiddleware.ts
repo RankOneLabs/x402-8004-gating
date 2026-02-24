@@ -244,7 +244,7 @@ function createMockPaymentMiddleware(
     // Compute price (may be discounted for combined mode)
     const agentAddress = req.headers["x-agent-address"] as string | undefined;
     const priceResult = await resolvePrice(agentAddress, routeConfig, reputationProvider);
-    let price: number = routeConfig.payment.basePrice;
+    let price: string = routeConfig.payment.basePrice;
     if (isErr(priceResult)) {
       console.error(
         "Failed to fetch reputation score for agent in combined mode; falling back to base price.",

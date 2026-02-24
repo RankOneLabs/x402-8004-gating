@@ -2,7 +2,7 @@ import { createPublicClient, http, getContract, isAddress, type Address } from "
 import { baseSepolia } from "viem/chains";
 import type { ReputationProvider, ReputationResult } from "./types.js";
 import { identityRegistryAbi, reputationRegistryAbi } from "./abis.js";
-import { type Result, Ok, Err } from "../types/result.js";
+import { type Result, Ok, Err, isErr } from "../types/result.js";
 import { type Option, Some, None, isNone } from "../types/option.js";
 import { type ERC8004Error, InvalidAddressFormat } from "../types/errors.js";
 
@@ -84,9 +84,14 @@ export class ERC8004Client implements ReputationProvider {
   ): Promise<ReputationResult> {
     // Step 1: Resolve address → agentId
     const resolved = await this.resolveAgentId(agentAddress);
-    if (resolved._tag === "Err" || isNone(resolved.value)) {
+    if (isErr(resolved)) {
       return { score: 0, feedbackCount: 0 };
     }
+    // resolved: Ok<Option<bigint>> — narrowed past Err
+    if (isNone(resolved.value)) {
+      return { score: 0, feedbackCount: 0 };
+    }
+    // resolved.value: Some<bigint> — narrowed past None
     const agentId = resolved.value.value;
 
     // Step 2: Get all clients who submitted feedback
