@@ -30,7 +30,9 @@ async function req(
 }
 
 function logResult(label: string, status: number, body: unknown) {
-  console.log(`  ${statusColor(status)} ${dim(JSON.stringify(body, null, 2))}`);
+  console.log(
+    `  ${cyan(label)} ${statusColor(status)} ${dim(JSON.stringify(body, null, 2))}`,
+  );
 }
 
 /**
