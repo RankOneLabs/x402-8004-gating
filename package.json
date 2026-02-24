@@ -18,12 +18,14 @@
     "seed:local": "tsx scripts/seed-local.ts",
     "anvil": "anvil --fork-url https://sepolia.base.org --port 8545",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@x402/core": "^2.4.0",
-    "@x402/express": "^2.4.0",
     "@x402/evm": "^2.4.0",
+    "@x402/express": "^2.4.0",
     "@x402/fetch": "^2.4.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -33,6 +35,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.5",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
   }
 }

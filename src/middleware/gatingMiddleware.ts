@@ -216,7 +216,7 @@ function createMockPaymentMiddleware(
  * Match an incoming request to a gating route config.
  * Supports "METHOD /path" format matching.
  */
-function matchRoute(
+export function matchRoute(
   req: Request,
   routes: GatingRoutesConfig,
 ): GatingRouteConfig | null {
