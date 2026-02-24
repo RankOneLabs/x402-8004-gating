@@ -1,5 +1,34 @@
 // Domain error types as discriminated unions
 
+// --- Config errors (startup validation, extend Error for stack traces) ---
+
+export class InvalidRoutePattern extends Error {
+  readonly _tag = "InvalidRoutePattern" as const;
+  constructor(readonly pattern: string) {
+    super(
+      `Invalid route pattern "${pattern}". ` +
+        `Expected "METHOD /path" format (e.g. "GET /api/paid" or "POST /api/premium/*").`,
+    );
+    this.name = "InvalidRoutePattern";
+  }
+}
+
+export class InvalidNetworkFormat extends Error {
+  readonly _tag = "InvalidNetworkFormat" as const;
+  constructor(
+    readonly network: string,
+    readonly routeKey: string,
+  ) {
+    super(
+      `Invalid network identifier "${network}" for route "${routeKey}". ` +
+        `Expected CAIP-2 format "namespace:reference" (e.g. "eip155:84532").`,
+    );
+    this.name = "InvalidNetworkFormat";
+  }
+}
+
+export type ConfigError = InvalidRoutePattern | InvalidNetworkFormat;
+
 // --- Reputation gate errors ---
 
 export interface MissingAgentAddress {

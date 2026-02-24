@@ -8,7 +8,7 @@ import { validateReputation } from "./reputationGate.js";
 import { computePrice } from "./pricingEngine.js";
 import { type Option, Some, None, isSome } from "../types/option.js";
 import { type Result, Ok, Err, isErr } from "../types/result.js";
-import { type PriceResolutionError, ReputationFetchFailed } from "../types/errors.js";
+import { type PriceResolutionError, ReputationFetchFailed, InvalidRoutePattern, InvalidNetworkFormat } from "../types/errors.js";
 
 interface GatingMiddlewareOptions {
   gatingRoutes: GatingRoutesConfig;
@@ -27,18 +27,16 @@ export interface ParsedRoutePattern {
 
 /**
  * Parse a "METHOD /path" or "METHOD /path/*" route pattern string.
- * Returns None for malformed input, Some({...}) for valid patterns.
+ * Assumes input has been validated at startup — use validateRouteKeys first.
  */
-export const parseRoutePattern = (pattern: string): Option<ParsedRoutePattern> => {
+export const parseRoutePattern = (pattern: string): ParsedRoutePattern => {
   const [method, path] = pattern.split(" ", 2);
-  if (!method || !path) return None;
-
   const isWildcard = path.endsWith("/*");
-  return Some({
+  return {
     method,
     path: isWildcard ? path.slice(0, -2) : path,
     isWildcard,
-  });
+  };
 };
 
 /**
@@ -111,6 +109,19 @@ const toX402RouteEntry = (reputationProvider: ReputationProvider) =>
     }];
   };
 
+/**
+ * Validate that all route keys in the config are well-formed "METHOD /path" patterns.
+ * Throws InvalidRoutePattern at startup for any malformed key.
+ */
+const validateRouteKeys = (routes: GatingRoutesConfig): void => {
+  for (const pattern of Object.keys(routes)) {
+    const [method, path] = pattern.split(" ", 2);
+    if (!method || !path) {
+      throw new InvalidRoutePattern(pattern);
+    }
+  }
+};
+
 // --- Core functions ---
 
 /**
@@ -127,6 +138,9 @@ export function createGatingMiddleware(
   options: GatingMiddlewareOptions,
 ): RequestHandler[] {
   const { gatingRoutes, reputationProvider, mockMode, facilitatorUrl } = options;
+
+  // Validate all route patterns at startup
+  validateRouteKeys(gatingRoutes);
 
   // Middleware 1: reputation-only gate
   const reputationMiddleware: RequestHandler = async (req, res, next) => {
@@ -178,15 +192,12 @@ export function createGatingMiddleware(
 
 /**
  * Validate that a network string is in CAIP-2 format (e.g. "eip155:84532").
- * Throws an Error with a descriptive message if the format is invalid.
+ * Throws InvalidNetworkFormat if the format is invalid.
  */
 function validateNetwork(network: string, routeKey: string): asserts network is Network {
   const parts = network.split(":");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(
-      `Invalid network identifier "${network}" for route "${routeKey}". ` +
-        `Expected CAIP-2 format "namespace:reference" (e.g. "eip155:84532").`,
-    );
+    throw new InvalidNetworkFormat(network, routeKey);
   }
 }
 
@@ -293,9 +304,9 @@ export function matchRoute(
   // Try wildcard match (e.g. "GET /api/premium/*")
   const wildcardMatch = Object.entries(routes).find(([pattern]) => {
     const parsed = parseRoutePattern(pattern);
-    if (!isSome(parsed) || !parsed.value.isWildcard) return false;
-    if (parsed.value.method !== method) return false;
-    return path === parsed.value.path || path.startsWith(parsed.value.path + "/");
+    if (!parsed.isWildcard) return false;
+    if (parsed.method !== method) return false;
+    return path === parsed.path || path.startsWith(parsed.path + "/");
   });
 
   return wildcardMatch ? Some(wildcardMatch[1]) : None;

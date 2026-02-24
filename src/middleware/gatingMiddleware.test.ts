@@ -2,34 +2,23 @@ import { describe, it, expect, vi } from "vitest";
 import { matchRoute, createGatingMiddleware, parseRoutePattern, resolvePrice, isPaymentRoute } from "./gatingMiddleware.js";
 import type { GatingRoutesConfig, GatingRouteConfig } from "./types.js";
 import { MockERC8004Client } from "../erc8004/mock.js";
-import { isSome, isNone, None } from "../types/option.js";
+import { isSome, None } from "../types/option.js";
 import { isOk, isErr } from "../types/result.js";
+import { InvalidRoutePattern, InvalidNetworkFormat } from "../types/errors.js";
 
 // --- parseRoutePattern tests ---
 
 describe("parseRoutePattern", () => {
   it("parses a valid exact pattern", () => {
-    const result = parseRoutePattern("GET /api/paid");
-    expect(isSome(result)).toBe(true);
-    if (isSome(result)) {
-      expect(result.value).toEqual({ method: "GET", path: "/api/paid", isWildcard: false });
-    }
+    expect(parseRoutePattern("GET /api/paid")).toEqual({
+      method: "GET", path: "/api/paid", isWildcard: false,
+    });
   });
 
   it("parses a valid wildcard pattern", () => {
-    const result = parseRoutePattern("POST /api/premium/*");
-    expect(isSome(result)).toBe(true);
-    if (isSome(result)) {
-      expect(result.value).toEqual({ method: "POST", path: "/api/premium", isWildcard: true });
-    }
-  });
-
-  it("returns None for missing method (no space)", () => {
-    expect(parseRoutePattern("/no-method")).toBe(None);
-  });
-
-  it("returns None for empty string", () => {
-    expect(parseRoutePattern("")).toBe(None);
+    expect(parseRoutePattern("POST /api/premium/*")).toEqual({
+      method: "POST", path: "/api/premium", isWildcard: true,
+    });
   });
 });
 
@@ -180,11 +169,50 @@ describe("matchRoute", () => {
     expect(matchRoute(fakeReq("GET", "/api/premiumbar"), routes)).toBe(None);
   });
 
-  it("skips invalid patterns (no space)", () => {
+});
+
+// --- startup validation tests ---
+
+describe("createGatingMiddleware startup validation", () => {
+  const mockProvider = new MockERC8004Client();
+
+  it("throws InvalidRoutePattern for a key with no space", () => {
     const badRoutes: GatingRoutesConfig = {
       "/no-method": { mode: "payment" },
     };
-    expect(matchRoute(fakeReq("GET", "/no-method"), badRoutes)).toBe(None);
+    expect(() =>
+      createGatingMiddleware({ gatingRoutes: badRoutes, reputationProvider: mockProvider, mockMode: true }),
+    ).toThrow(InvalidRoutePattern);
+  });
+
+  it("throws InvalidRoutePattern for an empty key", () => {
+    const badRoutes: GatingRoutesConfig = {
+      "": { mode: "payment" },
+    };
+    expect(() =>
+      createGatingMiddleware({ gatingRoutes: badRoutes, reputationProvider: mockProvider, mockMode: true }),
+    ).toThrow(InvalidRoutePattern);
+  });
+
+  it("throws InvalidNetworkFormat for a malformed network", () => {
+    const badRoutes: GatingRoutesConfig = {
+      "GET /api/paid": {
+        mode: "payment",
+        payment: { basePrice: "$0.01", network: "not-caip2", payTo: "0xPAY" },
+      },
+    };
+    expect(() =>
+      createGatingMiddleware({ gatingRoutes: badRoutes, reputationProvider: mockProvider, mockMode: false }),
+    ).toThrow(InvalidNetworkFormat);
+  });
+
+  it("includes pattern in InvalidRoutePattern message", () => {
+    const badRoutes: GatingRoutesConfig = {
+      "/broken": { mode: "payment" },
+    };
+    expect(() =>
+      createGatingMiddleware({ gatingRoutes: badRoutes, reputationProvider: mockProvider, mockMode: true }),
+    ).toThrow(/\/broken/);
   });
 });
 

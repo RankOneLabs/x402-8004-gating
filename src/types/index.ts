@@ -11,6 +11,10 @@ export {
 } from "./result.js";
 
 export {
+  type ConfigError,
+  InvalidRoutePattern,
+  InvalidNetworkFormat,
+
   type ReputationGateError,
   type PriceResolutionError,
   type ERC8004Error,
