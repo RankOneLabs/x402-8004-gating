@@ -106,7 +106,7 @@ async function demo() {
       const paid2 = await req(fetchFn, "GET", "/api/paid", { "X-Payment-Mock": "true" });
       logResult("mock payment", paid2.status, paid2.body);
     } else {
-      console.log(dim("\n  b) Real payment requires a funded wallet — see client:live mode"));
+      console.log(dim("\n  b) Real payment requires a funded wallet — run `npm run client` for live mode"));
     }
   }
 
