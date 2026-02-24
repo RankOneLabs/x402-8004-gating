@@ -119,9 +119,7 @@ async function demo() {
   const rep1 = await req(fetchFn, "GET", "/api/trusted");
   logResult("no header", rep1.status, rep1.body);
 
-  if (LOCAL_MODE) {
-    console.log(dim("\n  (In local mode, use real registered agent addresses from seed:local)"));
-  } else {
+  if (MOCK_MODE) {
     console.log("\n  b) Low reputation agent (score=20):");
     const rep2 = await req(fetchFn, "GET", "/api/trusted", { "X-Agent-Address": "0xLowRepAgent" });
     logResult("low rep", rep2.status, rep2.body);
@@ -129,6 +127,8 @@ async function demo() {
     console.log("\n  c) High reputation agent (score=95):");
     const rep3 = await req(fetchFn, "GET", "/api/trusted", { "X-Agent-Address": "0xHighRepAgent" });
     logResult("high rep", rep3.status, rep3.body);
+  } else {
+    console.log(dim("\n  (Use real registered agent addresses — see seed:local or register-agent)"));
   }
 
   // ─── Combined route ───
@@ -139,7 +139,7 @@ async function demo() {
     console.log("\n  a) No reputation (base price $0.01) — auto-pay:");
     const flex1 = await req(fetchFn, "GET", "/api/flex");
     logResult("no rep + paid", flex1.status, flex1.body);
-  } else {
+  } else if (MOCK_MODE) {
     console.log("\n  a) No reputation (base price $0.01):");
     const flex1 = await req(fetchFn, "GET", "/api/flex");
     logResult("no rep", flex1.status, flex1.body);
@@ -152,14 +152,18 @@ async function demo() {
     const flex3 = await req(fetchFn, "GET", "/api/flex", { "X-Agent-Address": "0xHighRepAgent" });
     logResult("high rep", flex3.status, flex3.body);
 
-    if (MOCK_MODE) {
-      console.log("\n  d) High reputation + mock payment:");
-      const flex4 = await req(fetchFn, "GET", "/api/flex", {
-        "X-Agent-Address": "0xHighRepAgent",
-        "X-Payment-Mock": "true",
-      });
-      logResult("high rep + paid", flex4.status, flex4.body);
-    }
+    console.log("\n  d) High reputation + mock payment:");
+    const flex4 = await req(fetchFn, "GET", "/api/flex", {
+      "X-Agent-Address": "0xHighRepAgent",
+      "X-Payment-Mock": "true",
+    });
+    logResult("high rep + paid", flex4.status, flex4.body);
+  } else {
+    console.log("\n  a) No reputation (base price $0.01):");
+    const flex1 = await req(fetchFn, "GET", "/api/flex");
+    logResult("no rep", flex1.status, flex1.body);
+
+    console.log(dim("\n  (Use real registered agent addresses for reputation-based pricing)"));
   }
 
   console.log(cyan("\n=== Demo complete ===\n"));
