@@ -1,35 +1,27 @@
-import type { Request, Response } from "express";
 import { isAddress } from "viem";
 import type { ReputationProvider } from "../erc8004/types.js";
 import type { ReputationConfig } from "./types.js";
+import { type Result, Ok, Err } from "../types/result.js";
+import {
+  type ReputationGateError,
+  MissingAgentAddress,
+  InvalidAgentAddress,
+  InsufficientReputation,
+} from "../types/errors.js";
 
 /**
- * Check reputation for a request. Returns the score if it passes the
- * threshold, or sends a 403 response and returns null.
+ * Pure reputation validator — no req/res dependency.
+ * Returns Ok(score) when the agent passes the threshold,
+ * or Err(ReputationGateError) describing why it failed.
  */
-export async function checkReputation(
-  req: Request,
-  res: Response,
+export const validateReputation = async (
+  agentAddress: string | undefined,
   reputationProvider: ReputationProvider,
   config: ReputationConfig,
-): Promise<number | null> {
-  const agentAddress = req.headers["x-agent-address"] as string | undefined;
+): Promise<Result<number, ReputationGateError>> => {
+  if (!agentAddress) return Err(MissingAgentAddress);
 
-  if (!agentAddress) {
-    res.status(403).json({
-      error: "Missing X-Agent-Address header",
-      detail: "Reputation-gated endpoints require agent identification.",
-    });
-    return null;
-  }
-
-  if (!isAddress(agentAddress)) {
-    res.status(400).json({
-      error: "Invalid X-Agent-Address header",
-      detail: "The provided address is not a valid EVM address.",
-    });
-    return null;
-  }
+  if (!isAddress(agentAddress)) return Err(InvalidAgentAddress(agentAddress));
 
   const result = await reputationProvider.getScore(
     agentAddress,
@@ -38,15 +30,8 @@ export async function checkReputation(
   );
 
   if (result.score < config.minScore) {
-    res.status(403).json({
-      error: "Insufficient reputation",
-      detail: `Score ${result.score} is below the required minimum of ${config.minScore}.`,
-      score: result.score,
-      required: config.minScore,
-      feedbackCount: result.feedbackCount,
-    });
-    return null;
+    return Err(InsufficientReputation(result.score, config.minScore, result.feedbackCount));
   }
 
-  return result.score;
-}
+  return Ok(result.score);
+};

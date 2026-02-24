@@ -6,6 +6,8 @@
  */
 import "dotenv/config";
 import { ERC8004Client } from "../src/erc8004/client.js";
+import { isErr, isOk } from "../src/types/result.js";
+import { isNone, isSome } from "../src/types/option.js";
 
 const RPC_URL = process.env.BASE_SEPOLIA_RPC || "https://sepolia.base.org";
 const IDENTITY_REGISTRY =
@@ -29,12 +31,16 @@ async function main() {
   console.log(`Querying reputation for: ${agentAddress}`);
 
   // Resolve agentId
-  const agentId = await client.resolveAgentId(agentAddress);
-  if (agentId === null) {
+  const resolved = await client.resolveAgentId(agentAddress);
+  if (isErr(resolved)) {
+    console.error(`Invalid address: ${resolved.error.address}`);
+    return;
+  }
+  if (isNone(resolved.value)) {
     console.log("No ERC-8004 identity found for this address.");
     return;
   }
-  console.log(`Agent ID: ${agentId}`);
+  console.log(`Agent ID: ${resolved.value.value}`);
 
   // Query score
   const result = await client.getScore(agentAddress);
