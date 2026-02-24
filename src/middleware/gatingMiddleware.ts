@@ -4,8 +4,11 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import type { ReputationProvider } from "../erc8004/types.js";
 import type { GatingRoutesConfig, GatingRouteConfig } from "./types.js";
-import { checkReputation } from "./reputationGate.js";
+import { validateReputation } from "./reputationGate.js";
 import { computePrice } from "./pricingEngine.js";
+import { type Option, Some, None, isSome } from "../types/option.js";
+import { type Result, Ok, Err, isErr } from "../types/result.js";
+import { type PriceResolutionError, ReputationFetchFailed, InvalidRoutePattern, InvalidNetworkFormat } from "../types/errors.js";
 
 interface GatingMiddlewareOptions {
   gatingRoutes: GatingRoutesConfig;
@@ -13,6 +16,113 @@ interface GatingMiddlewareOptions {
   mockMode: boolean;
   facilitatorUrl?: string;
 }
+
+// --- Pure helpers ---
+
+export interface ParsedRoutePattern {
+  method: string;
+  path: string;
+  isWildcard: boolean;
+}
+
+/**
+ * Parse a "METHOD /path" or "METHOD /path/*" route pattern string.
+ * Assumes input has been validated at startup — use validateRouteKeys first.
+ */
+export const parseRoutePattern = (pattern: string): ParsedRoutePattern => {
+  const [method, path] = pattern.split(" ", 2);
+  const isWildcard = path.endsWith("/*");
+  return {
+    method,
+    path: isWildcard ? path.slice(0, -2) : path,
+    isWildcard,
+  };
+};
+
+/**
+ * Resolve the effective price for a gated route, applying reputation discount
+ * in combined mode when an agent address is available.
+ * Returns Ok(price) on success, Err(PriceResolutionError) on failure.
+ */
+export const resolvePrice = async (
+  agentAddress: string | undefined,
+  config: GatingRouteConfig,
+  reputationProvider: ReputationProvider,
+): Promise<Result<string, PriceResolutionError>> => {
+  const basePrice = config.payment!.basePrice;
+  if (config.mode !== "combined" || !agentAddress) return Ok(basePrice);
+
+  try {
+    const result = await reputationProvider.getScore(
+      agentAddress,
+      config.reputation?.tag1,
+      config.reputation?.tag2,
+    );
+    return Ok(computePrice(result.score, basePrice, config.priceTiers));
+  } catch (error) {
+    return Err(ReputationFetchFailed(agentAddress, error));
+  }
+};
+
+/**
+ * Type predicate: true when a route entry has payment config and is not reputation-only.
+ */
+export const isPaymentRoute = (
+  entry: [string, GatingRouteConfig],
+): entry is [string, GatingRouteConfig & { payment: NonNullable<GatingRouteConfig["payment"]> }] => {
+  const [, config] = entry;
+  return config.mode !== "reputation" && config.payment != null;
+};
+
+/**
+ * Curried mapper: transforms a [routeKey, GatingRouteConfig] entry into
+ * a [routeKey, x402Config] entry for the x402 payment middleware.
+ */
+const toX402RouteEntry = (reputationProvider: ReputationProvider) =>
+  ([routeKey, config]: [string, GatingRouteConfig]): [string, unknown] => {
+    const { network, payTo, basePrice } = config.payment!;
+    validateNetwork(network, routeKey);
+
+    const price = config.mode === "combined"
+      ? async (context: { adapter: { getHeader: (name: string) => string | undefined } }) => {
+          const result = await resolvePrice(context.adapter.getHeader("x-agent-address"), config, reputationProvider);
+          if (isErr(result)) {
+            console.error("Failed to fetch reputation score for agent in combined mode; falling back to base price.", {
+              agentAddress: result.error.agentAddress,
+              cause: result.error.cause,
+            });
+            return basePrice;
+          }
+          return result.value;
+        }
+      : basePrice;
+
+    return [routeKey, {
+      accepts: {
+        scheme: "exact",
+        network: network as Network,
+        payTo,
+        price,
+        maxTimeoutSeconds: 60,
+      },
+      description: config.description || routeKey,
+    }];
+  };
+
+/**
+ * Validate that all route keys in the config are well-formed "METHOD /path" patterns.
+ * Throws InvalidRoutePattern at startup for any malformed key.
+ */
+const validateRouteKeys = (routes: GatingRoutesConfig): void => {
+  for (const pattern of Object.keys(routes)) {
+    const [method, path] = pattern.split(" ", 2);
+    if (!method || !path) {
+      throw new InvalidRoutePattern(pattern);
+    }
+  }
+};
+
+// --- Core functions ---
 
 /**
  * Build the unified gating middleware stack.
@@ -29,17 +139,42 @@ export function createGatingMiddleware(
 ): RequestHandler[] {
   const { gatingRoutes, reputationProvider, mockMode, facilitatorUrl } = options;
 
+  // Validate all route patterns at startup
+  validateRouteKeys(gatingRoutes);
+
   // Middleware 1: reputation-only gate
   const reputationMiddleware: RequestHandler = async (req, res, next) => {
-    const routeConfig = matchRoute(req, gatingRoutes);
-    if (!routeConfig || routeConfig.mode !== "reputation") {
+    const matched = matchRoute(req, gatingRoutes);
+    if (!isSome(matched) || matched.value.mode !== "reputation") {
       return next();
     }
-    if (!routeConfig.reputation) {
+    if (!matched.value.reputation) {
       return next();
     }
-    const score = await checkReputation(req, res, reputationProvider, routeConfig.reputation);
-    if (score === null) return; // 403 already sent
+    const agentAddress = req.headers["x-agent-address"] as string | undefined;
+    const result = await validateReputation(agentAddress, reputationProvider, matched.value.reputation);
+    if (isErr(result)) {
+      switch (result.error._tag) {
+        case "MissingAgentAddress":
+          return res.status(403).json({
+            error: "Missing X-Agent-Address header",
+            detail: "Reputation-gated endpoints require agent identification.",
+          });
+        case "InvalidAgentAddress":
+          return res.status(400).json({
+            error: "Invalid X-Agent-Address header",
+            detail: "The provided address is not a valid EVM address.",
+          });
+        case "InsufficientReputation":
+          return res.status(403).json({
+            error: "Insufficient reputation",
+            detail: `Score ${result.error.score} is below the required minimum of ${result.error.required}.`,
+            score: result.error.score,
+            required: result.error.required,
+            feedbackCount: result.error.feedbackCount,
+          });
+      }
+    }
     next();
   };
 
@@ -57,15 +192,12 @@ export function createGatingMiddleware(
 
 /**
  * Validate that a network string is in CAIP-2 format (e.g. "eip155:84532").
- * Throws an Error with a descriptive message if the format is invalid.
+ * Throws InvalidNetworkFormat if the format is invalid.
  */
 function validateNetwork(network: string, routeKey: string): asserts network is Network {
   const parts = network.split(":");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(
-      `Invalid network identifier "${network}" for route "${routeKey}". ` +
-        `Expected CAIP-2 format "namespace:reference" (e.g. "eip155:84532").`,
-    );
+    throw new InvalidNetworkFormat(network, routeKey);
   }
 }
 
@@ -82,66 +214,13 @@ function createX402Middleware(
   const resourceServer = new x402ResourceServer(facilitatorClient)
     .register("eip155:84532", new ExactEvmScheme());
 
-  // Build x402 RoutesConfig from our gating routes (only payment + combined)
-  const x402Routes: Record<string, unknown> = {};
-
-  for (const [routeKey, config] of Object.entries(gatingRoutes)) {
-    if (config.mode === "reputation") continue; // handled by reputation middleware
-    if (!config.payment) continue;
-
-    const { network, payTo } = config.payment;
-    validateNetwork(network, routeKey);
-
-    if (config.mode === "payment") {
-      // Static price
-      x402Routes[routeKey] = {
-        accepts: {
-          scheme: "exact",
-          network: network as Network,
-          payTo,
-          price: config.payment.basePrice,
-          maxTimeoutSeconds: 60,
-        },
-        description: config.description || routeKey,
-      };
-    } else if (config.mode === "combined") {
-      // Dynamic price — query reputation inside the callback
-      const basePrice = config.payment.basePrice;
-      const tiers = config.priceTiers;
-
-      x402Routes[routeKey] = {
-        accepts: {
-          scheme: "exact",
-          network: network as Network,
-          payTo,
-          maxTimeoutSeconds: 60,
-          price: async (context: { adapter: { getHeader: (name: string) => string | undefined } }) => {
-            const agentAddress = context.adapter.getHeader("x-agent-address");
-            if (!agentAddress) return basePrice;
-
-            try {
-              const result = await reputationProvider.getScore(
-                agentAddress,
-                config.reputation?.tag1,
-                config.reputation?.tag2,
-              );
-              return computePrice(result.score, basePrice, tiers);
-            } catch (error) {
-              console.error(
-                "Failed to fetch reputation score for agent in combined mode; falling back to base price.",
-                { agentAddress, error }
-              );
-              return basePrice; // fallback to full price on error
-            }
-          },
-        },
-        description: config.description || routeKey,
-      };
-    }
-  }
+  const x402Routes = Object.fromEntries(
+    Object.entries(gatingRoutes)
+      .filter(isPaymentRoute)
+      .map(toX402RouteEntry(reputationProvider)),
+  );
 
   if (Object.keys(x402Routes).length === 0) {
-    // No payment routes — return passthrough
     return (_req, _res, next) => next();
   }
 
@@ -162,8 +241,9 @@ function createMockPaymentMiddleware(
   reputationProvider: ReputationProvider,
 ): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const routeConfig = matchRoute(req, gatingRoutes);
-    if (!routeConfig) return next();
+    const matched = matchRoute(req, gatingRoutes);
+    if (!isSome(matched)) return next();
+    const routeConfig = matched.value;
     if (routeConfig.mode === "reputation") return next(); // handled upstream
 
     if (!routeConfig.payment) return next();
@@ -173,25 +253,19 @@ function createMockPaymentMiddleware(
     if (hasMockPayment) return next();
 
     // Compute price (may be discounted for combined mode)
-    let price = routeConfig.payment.basePrice;
-    if (routeConfig.mode === "combined") {
-      const agentAddress = req.headers["x-agent-address"] as string | undefined;
-      if (agentAddress) {
-        try {
-          const result = await reputationProvider.getScore(
-            agentAddress,
-            routeConfig.reputation?.tag1,
-            routeConfig.reputation?.tag2,
-          );
-          price = computePrice(result.score, routeConfig.payment.basePrice, routeConfig.priceTiers);
-        } catch (err) {
-          console.warn(
-            "Failed to fetch reputation score in combined gating mode; falling back to base price.",
-            { agentAddress, error: err },
-          );
-          // fallback to base price
-        }
-      }
+    const agentAddress = req.headers["x-agent-address"] as string | undefined;
+    const priceResult = await resolvePrice(agentAddress, routeConfig, reputationProvider);
+    let price: string = routeConfig.payment.basePrice;
+    if (isErr(priceResult)) {
+      console.error(
+        "Failed to fetch reputation score for agent in combined mode; falling back to base price.",
+        {
+          agentAddress: priceResult.error.agentAddress,
+          cause: priceResult.error.cause,
+        },
+      );
+    } else {
+      price = priceResult.value;
     }
 
     // Return 402 Payment Required
@@ -216,32 +290,24 @@ function createMockPaymentMiddleware(
  * Match an incoming request to a gating route config.
  * Supports "METHOD /path" format matching.
  */
-function matchRoute(
+export function matchRoute(
   req: Request,
   routes: GatingRoutesConfig,
-): GatingRouteConfig | null {
+): Option<GatingRouteConfig> {
   const method = req.method.toUpperCase();
   const path = req.path;
 
   // Try exact match first
   const exactKey = `${method} ${path}`;
-  if (routes[exactKey]) return routes[exactKey];
+  if (routes[exactKey]) return Some(routes[exactKey]);
 
   // Try wildcard match (e.g. "GET /api/premium/*")
-  for (const [pattern, config] of Object.entries(routes)) {
-    const [routeMethod, routePath] = pattern.split(" ", 2);
-    // Validate pattern format: must be "METHOD /path"
-    if (!routeMethod || !routePath) continue;
-    if (routeMethod !== method) continue;
+  const wildcardMatch = Object.entries(routes).find(([pattern]) => {
+    const parsed = parseRoutePattern(pattern);
+    if (!parsed.isWildcard) return false;
+    if (parsed.method !== method) return false;
+    return path === parsed.path || path.startsWith(parsed.path + "/");
+  });
 
-    if (routePath.endsWith("/*")) {
-      const prefix = routePath.slice(0, -2);
-      // Match exact prefix or any subpath, but avoid matching similar prefixes like "/apibar"
-      if (path === prefix || path.startsWith(prefix + "/")) {
-        return config;
-      }
-    }
-  }
-
-  return null;
+  return wildcardMatch ? Some(wildcardMatch[1]) : None;
 }

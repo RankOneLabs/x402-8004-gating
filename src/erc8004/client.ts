@@ -2,6 +2,9 @@ import { createPublicClient, http, getContract, isAddress, type Address } from "
 import { baseSepolia } from "viem/chains";
 import type { ReputationProvider, ReputationResult } from "./types.js";
 import { identityRegistryAbi, reputationRegistryAbi } from "./abis.js";
+import { type Result, Ok, Err, isErr } from "../types/result.js";
+import { type Option, Some, None, isNone } from "../types/option.js";
+import { type ERC8004Error, InvalidAddressFormat } from "../types/errors.js";
 
 interface ERC8004ClientConfig {
   rpcUrl: string;
@@ -51,11 +54,12 @@ export class ERC8004Client implements ReputationProvider {
 
   /**
    * Resolve an Ethereum address to an ERC-8004 agentId by scanning
-   * Registered events. Returns null if no identity found.
+   * Registered events. Returns Err for invalid address, Ok(None) if
+   * no identity found, Ok(Some(agentId)) on success.
    */
-  async resolveAgentId(ownerAddress: string): Promise<bigint | null> {
+  async resolveAgentId(ownerAddress: string): Promise<Result<Option<bigint>, ERC8004Error>> {
     if (!isAddress(ownerAddress)) {
-      throw new Error(`Invalid Ethereum address format: "${ownerAddress}". Expected a valid 0x-prefixed hex address.`);
+      return Err(InvalidAddressFormat(ownerAddress, "resolveAgentId"));
     }
     const logs = await this.publicClient.getContractEvents({
       address: this.identityRegistry.address,
@@ -66,10 +70,11 @@ export class ERC8004Client implements ReputationProvider {
       toBlock: "latest",
     });
 
-    if (logs.length === 0) return null;
+    if (logs.length === 0) return Ok(None);
     // Use the most recent registration
     const lastLog = logs[logs.length - 1];
-    return lastLog.args.agentId ?? null;
+    const agentId = lastLog.args.agentId;
+    return agentId != null ? Ok(Some(agentId)) : Ok(None);
   }
 
   async getScore(
@@ -78,10 +83,16 @@ export class ERC8004Client implements ReputationProvider {
     tag2?: string,
   ): Promise<ReputationResult> {
     // Step 1: Resolve address → agentId
-    const agentId = await this.resolveAgentId(agentAddress);
-    if (agentId === null) {
+    const resolved = await this.resolveAgentId(agentAddress);
+    if (isErr(resolved)) {
       return { score: 0, feedbackCount: 0 };
     }
+    // resolved: Ok<Option<bigint>> — narrowed past Err
+    if (isNone(resolved.value)) {
+      return { score: 0, feedbackCount: 0 };
+    }
+    // resolved.value: Some<bigint> — narrowed past None
+    const agentId = resolved.value.value;
 
     // Step 2: Get all clients who submitted feedback
     const clients = await this.reputationRegistry.read.getClients([agentId]) as Address[];
